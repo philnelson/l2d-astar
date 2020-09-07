@@ -41,7 +41,7 @@ local find_wc = function(astar, start, goal)
 		local current = findlowest(openset, fscore)
 
 		if current == goal then
-			return reconstruct(camefrom, goal)
+			return reconstruct(camefrom, goal), gscore[goal]
 		end
 		openset[current] = nil
 		closedset[current] = true
@@ -81,7 +81,7 @@ local find_nc = function(astar, start, goal)
 		local current = findlowest(openset, fscore)
 
 		if current == goal then
-			return reconstruct(camefrom, goal)
+			return reconstruct(camefrom, goal), gscore[goal]
 		end
 		openset[current] = nil
 

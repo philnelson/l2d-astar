@@ -13,11 +13,10 @@ local startx, starty = 0, 15
 local goalx, goaly = 31, 15
 local tiebreaker = 1 + 1 / mapw -- to reduce search time "H := tiebreaker * H"
 local mapdata, mappath, visited = {}, nil, nil
-local numvisited = 0
+local numvisited, pathcost = 0, 0
 local currentastar
 
 local maxcost = 4
-local cR, cG, cB = (1 - 0.2) / (maxcost - 1), (1 - 0.4) / (maxcost - 1), (1 - 0.5) / (maxcost - 1)
 
 local mapget = function(x, y)
 	local row = mapdata[y]
@@ -29,12 +28,12 @@ local findpath = function()
 	local start = mapget(startx, starty)
 	local goal = mapget(goalx, goaly)
 	visited = {}
-	numvisited = 0
+	numvisited, pathcost = 0, 0
 	time = 0
 	if start and goal then
 		time = love.timer.getTime()
 		for i = 1, repeatcount do
-			mappath = currentastar:find(start, goal)
+			mappath, pathcost = currentastar:find(start, goal)
 		end
 		time = ((love.timer.getTime() - time) * 1000) / repeatcount
 		numvisited = numvisited / repeatcount
@@ -76,19 +75,21 @@ local mapfill = function()
 	for y = 0, maph - 1 do
 		local row = {}
 		for x = 0, mapw - 1 do
-			local c = love.math.random(0, maxcost * 10) / 10 
+			local c = love.math.random(0, maxcost)
 			if c >= 1 then row[x] = {x = x, y = y, cost = c} end
 		end
 		mapdata[y] = row
 	end
 end
 
+-- for cost based coloring
+local cR, cG, cB = (1 - 0.2) / (maxcost - 1), (1 - 0.4) / (maxcost - 1), (1 - 0.5) / (maxcost - 1)
 
 local mapdraw = function()
 	local ox, oy, cw = mapx, mapy, mapcw
 	
 	love.graphics.setColor(1, 1, 1)
-	love.graphics.rectangle("line", ox - 0.5, oy - 0.5, mapw * cw, maph * cw)
+	love.graphics.rectangle("line", ox - 0.5, oy - 0.5, mapw * cw + 1, maph * cw + 1)
 	
 	for y, row in pairs(mapdata) do
 		for x, node in pairs(row) do
@@ -114,7 +115,7 @@ local mapdraw = function()
 	end
 
 	if mappath then
-		love.graphics.setColor(0, 1, 0)
+		love.graphics.setColor(0, 0, 1)
 		local x1, y1 = (mappath[1].x + 0.5) * cw + ox, (mappath[1].y + 0.5) * cw + oy
 		local x2, y2
 		for i = 2, #mappath do
@@ -188,24 +189,23 @@ local heuristic4 = function(context, from, goal)
 	return tiebreaker * (_abs(from.x - goal.x) + _abs(from.y - goal.y))
 end
 
-local nodetypes = {['s']='start', ['g']='goal', ['c']='clear', 
-	['1']=1, ['2']=2, ['3']=3, ['4']=4}
+local nodetypes = {['s'] = 'start', ['g'] = 'goal', ['c'] = 'clear'}
+for i = 1, maxcost do nodetypes[tostring(i)] = i end 
 local nodetype = 'start'
 
-local mousedown1, cellx, celly, cellx1, celly1, cellnode
+local refreshmap
 
 local function update_node(cx, cy)
 	if not cx or not cy then return end
 	
-	local refresh = false
 	if nodetype == 'start' then
 		if startx ~= cx or starty ~= cy then
-			refresh = true
+			refreshmap = true
 			startx, starty = cx, cy
 		end
 	elseif nodetype == 'goal' then
 		if goalx ~= cx or goaly ~= cy then
-			refresh = true
+			refreshmap = true
 			goalx, goaly = cx, cy
 		end
 	else
@@ -214,21 +214,20 @@ local function update_node(cx, cy)
 		local node = mapget(cx, cy)
 		if node then
 			if cost then
-				refresh = (node.cost ~= cost) -- modify
-				node.cost = cost
-			else
-				refresh = true -- remove
+				if node.cost ~= cost then -- modify cost
+					refreshmap = true
+					node.cost = cost
+				end
+			else  -- remove node
+				refreshmap = true
 				mappop(cx, cy)
 			end
-		elseif cost then
-			refresh = true -- new
+		elseif cost then -- add node
+			refreshmap = true
 			mapset(cx, cy, cost)
 		end
 	end
-
-	if refresh then
-		findpath()
-	end
+	--return refreshmap
 end
 
 function love.keyreleased(k)
@@ -243,6 +242,8 @@ function love.keyreleased(k)
 	if nt then nodetype = nt end
 end
 
+local mousedown1, cellx, celly, cellx1, celly1, cellnode
+
 function love.mousepressed(mx,my,b)
 	if b == 1 then
 		cellx1, celly1, mousedown1 = cellx, celly, true
@@ -255,6 +256,7 @@ function love.mousereleased(mx, my, b)
 		if cellx1 == cellx and celly1 == celly then
 			update_node(cellx, celly)
 		end
+		if refreshmap then findpath(); refreshmap = false end
 	end
 end
 
@@ -283,9 +285,10 @@ love.draw = function()
 	love.graphics.print(_sf("Cell (%s, %s) Cost: %s",
 		cellx, celly, cellnode and cellnode.cost or "inf"), 5, 5)
 	love.graphics.print(_sf("Nodetype: %s", nodetype), 5, 20)
-	love.graphics.print("Keys: [s]tart, [c]lear, [g]oal, Cost [1][2][3][4]", 5, 35)
+	love.graphics.print(_sf("Keys: [s]tart, [c]lear, [g]oal, Cost [1]...[%i]", maxcost), 5, 35)
 	love.graphics.print("\t\t [space] toggle diagonal move", 5, 50)
-	love.graphics.print(_sf("Time: %.3fms, Visited %s", time, numvisited), 5, 65)
+	love.graphics.print(_sf("Time: %.3fms, Visited: %i, Path cost: %.3f",
+		time, numvisited or 0, pathcost or 0), 5, 65)
 
 	mapdraw()
 end
