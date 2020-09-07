@@ -46,11 +46,9 @@ local find_wc = function(astar, start, goal)
 		openset[current] = nil
 		closedset[current] = true
 
-		local from_node = camefrom[current]
-		local tentative_gscore
 		for _, neighbor in ipairs(neighbors(ctx, current)) do
 			if not closedset[neighbor] then
-				tentative_gscore = gscore[current] + d(ctx, current, neighbor)
+				local tentative_gscore = gscore[current] + d(ctx, current, neighbor)
 
 				if not gscore[neighbor] or tentative_gscore < gscore[neighbor] then
 					camefrom[neighbor] = current
@@ -65,8 +63,6 @@ local find_wc = function(astar, start, goal)
 			end
 		end
 	end
-
-	return nil
 end
 
 -- This version does not use a closed set
@@ -89,10 +85,8 @@ local find_nc = function(astar, start, goal)
 		end
 		openset[current] = nil
 
-		local from_node = camefrom[current]
-		local tentative_gscore
 		for _, neighbor in ipairs(neighbors(ctx, current)) do
-			tentative_gscore = gscore[current] + d(ctx, current, neighbor)
+			local tentative_gscore = gscore[current] + d(ctx, current, neighbor)
 
 			if not gscore[neighbor] or tentative_gscore < gscore[neighbor] then
 				camefrom[neighbor] = current
@@ -106,8 +100,6 @@ local find_nc = function(astar, start, goal)
 			end
 		end
 	end
-
-	return nil
 end
 
 local M = {}

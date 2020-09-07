@@ -1,7 +1,8 @@
 local astar = require 'astar'
 local astar8, astar4
 
-local time = 0
+local time = 0 -- average path finding time
+local repeatcount = 100 -- (average) time = totaltime / repeatcount
 
 local _floor, _abs, _sqrt = math.floor, math.abs, math.sqrt
 local _sf = string.format
@@ -10,15 +11,13 @@ local mapw, maph = 32, 32
 local mapx, mapy, mapcw = 5, 80, 20
 local startx, starty = 0, 15
 local goalx, goaly = 31, 15
+local tiebreaker = 1 + 1 / mapw -- to reduce search time "H := tiebreaker * H"
 local mapdata, mappath, visited = {}, nil, nil
-local currentfinder
+local numvisited = 0
+local currentastar
 
-local costcolors = {
-	[1] = {1, 1, 1},
-	[2] = {0.5, 0.7, 0.7},
-	[3] = {0.3, 0.4, 0.4},
-	[4] = {0.1, 0.2, 0.2},
-}
+local maxcost = 4
+local cR, cG, cB = (1 - 0.2) / (maxcost - 1), (1 - 0.4) / (maxcost - 1), (1 - 0.5) / (maxcost - 1)
 
 local mapget = function(x, y)
 	local row = mapdata[y]
@@ -30,11 +29,15 @@ local findpath = function()
 	local start = mapget(startx, starty)
 	local goal = mapget(goalx, goaly)
 	visited = {}
+	numvisited = 0
 	time = 0
 	if start and goal then
 		time = love.timer.getTime()
-		mappath = currentastar:find(start, goal)
-		time = (love.timer.getTime() - time) * 1000
+		for i = 1, repeatcount do
+			mappath = currentastar:find(start, goal)
+		end
+		time = ((love.timer.getTime() - time) * 1000) / repeatcount
+		numvisited = numvisited / repeatcount
 	else
 		mappath = nil
 	end
@@ -73,8 +76,8 @@ local mapfill = function()
 	for y = 0, maph - 1 do
 		local row = {}
 		for x = 0, mapw - 1 do
-			local c = love.math.random(0,4)
-			if c ~= 0 then row[x] = {x = x, y = y, cost = c} end
+			local c = love.math.random(0, maxcost * 10) / 10 
+			if c >= 1 then row[x] = {x = x, y = y, cost = c} end
 		end
 		mapdata[y] = row
 	end
@@ -90,7 +93,7 @@ local mapdraw = function()
 	for y, row in pairs(mapdata) do
 		for x, node in pairs(row) do
 			local c = node.cost
-			love.graphics.setColor(1.25 - 0.25 * c, 1.20 - 0.20 * c, 1.15 - 0.15 * c)
+			love.graphics.setColor(1 + cR * (1 - c), 1 + cG * (1 - c), 1 + cB * (1 - c))
 			love.graphics.rectangle("fill",
 				x * cw + ox + 1, y * cw + oy + 1, cw - 2, cw - 2)
 		end
@@ -104,7 +107,7 @@ local mapdraw = function()
 
 	if visited then
 		love.graphics.setColor(1, 0, 0)
-		for _, v in ipairs(visited) do
+		for v, _ in pairs(visited) do
 			love.graphics.rectangle("line",
 				v.x * cw + ox + 2.5, v.y * cw + oy + 2.5, cw - 5, cw - 5)
 		end
@@ -126,27 +129,21 @@ local neighbors8 = function(context, node)
 	local x, y = node.x, node.y
 	local rt, rc, rb = mapdata[y - 1], mapdata[y], mapdata[y + 1]
 	local t = {}
-	local n, e, s, w
+	local w, e
 	if rc then
 		e, w = rc[x - 1], rc[x + 1]
 		if e then t[#t + 1] = e end
 		if w then t[#t + 1] = w end
 	end
-	if rt then
-		n = rt[x]
-		if n then
-			t[#t + 1] = n
-			if e and rt[x - 1] then t[#t + 1] = rt[x - 1] end
-			if w and rt[x + 1] then t[#t + 1] = rt[x + 1] end
-		end
+	if rt and rt[x] then
+		t[#t + 1] = rt[x]
+		if e and rt[x - 1] then t[#t + 1] = rt[x - 1] end
+		if w and rt[x + 1] then t[#t + 1] = rt[x + 1] end
 	end
-	if rb then
-		s = rb[x]
-		if s then
-			t[#t + 1] = s
-			if e and rb[x - 1] then t[#t + 1] = rb[x - 1] end
-			if w and rb[x + 1] then t[#t + 1] = rb[x + 1] end
-		end
+	if rb and rb[x] then
+		t[#t + 1] = rb[x]
+		if e and rb[x - 1] then t[#t + 1] = rb[x - 1] end
+		if w and rb[x + 1] then t[#t + 1] = rb[x + 1] end
 	end
 
 	return t
@@ -169,28 +166,26 @@ end
 
 local root2 = _sqrt(2)
 
-local distance8 = function(context, from, to)
-	local dx, dy = from.x - to.x, from.y - to.y
-	return 0.5 * _sqrt(dx * dx + dy * dy) * (from.cost + to.cost)
+local distance8 = function(context, current, neighbor)
+	if current.x == neighbor.x or current.y == neighbor.y then
+		return 0.5 * (current.cost + neighbor.cost)
+	end
+	return 0.5 * root2 * (current.cost + neighbor.cost)
 end
 
-local distance4 = function(context, from, to)
-	local dx, dy = from.x - to.x, from.y - to.y
-	return 0.5 * (from.cost + to.cost)
+local distance4 = function(context, current, neighbor)
+	return 0.5 * (current.cost + neighbor.cost)
 end
 
 local heuristic8 = function(context, from, goal)
-	visited[#visited + 1] = from
-	--local dx, dy = from.x - goal.x, from.y - goal.y
-	--return _sqrt(dx * dx + dy * dy) * 1.1
-	--(dx + dy) + (sqrt(2) - 2) * min(dx, dy)
+	visited[from] = true; numvisited = numvisited + 1
 	local dx, dy = _abs(from.x - goal.x), _abs(from.y - goal.y)
-	return (1 + 1 / mapw) * (dx + dy + (root2 - 2) * math.min(dx, dy))
+	return tiebreaker * (dx + dy + (root2 - 2) * math.min(dx, dy))
 end
 
 local heuristic4 = function(context, from, goal)
-	visited[#visited + 1] = from 
-	return (1 + 1 / mapw) * (_abs(from.x - goal.x) + _abs(from.y - goal.y))
+	visited[from] = true; numvisited = numvisited + 1
+	return tiebreaker * (_abs(from.x - goal.x) + _abs(from.y - goal.y))
 end
 
 local nodetypes = {['s']='start', ['g']='goal', ['c']='clear', 
@@ -235,7 +230,7 @@ local function update_node(cx, cy)
 		findpath()
 	end
 end
---]]
+
 function love.keyreleased(k)
 	if k == "escape" then return love.event.quit() end
 	if k == "space" then
@@ -290,7 +285,7 @@ love.draw = function()
 	love.graphics.print(_sf("Nodetype: %s", nodetype), 5, 20)
 	love.graphics.print("Keys: [s]tart, [c]lear, [g]oal, Cost [1][2][3][4]", 5, 35)
 	love.graphics.print("\t\t [space] toggle diagonal move", 5, 50)
-	love.graphics.print(_sf("Time: %.3fms, Visited %s", time, #visited), 5, 65)
+	love.graphics.print(_sf("Time: %.3fms, Visited %s", time, numvisited), 5, 65)
 
 	mapdraw()
 end
