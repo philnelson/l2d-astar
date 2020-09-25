@@ -50,6 +50,15 @@ local setcost = function(x, y, cost)
 	return node
 end
 
+local path2polyline = function(path)
+	local polyline, cw = {}, mapcw
+	for i = 1, #path do
+		polyline[2 * i - 1] = _floor(cw * (path[i].x + 0.5))
+		polyline[2 * i    ] = _floor(cw * (path[i].y + 0.5))
+	end
+	return polyline
+end
+
 local findpath = function()
 	local startcost = mapget(mapdata, startx, starty)
 	local goalcost = mapget(mapdata, goalx, goaly)
@@ -65,10 +74,12 @@ local findpath = function()
 		end
 		time = ((love.timer.getTime() - time) * 1000) / repeatcount
 		numvisited = numvisited / repeatcount
+		if mappath then mappath.polyline = path2polyline(mappath) end
 	else
 		mappath = nil
 	end
 end
+
 
 local mapfill = function(data)
 	for y = 0, maph - 1 do
@@ -86,16 +97,16 @@ local cR, cG, cB = (1 - 0.2) / (maxcost - 1), (1 - 0.4) / (maxcost - 1), (1 - 0.
 
 local mapdraw = function()
 	local ox, oy, cw = mapx, mapy, mapcw
+	love.graphics.translate(ox, oy)
 	
 	love.graphics.setColor(1, 1, 1)
-	love.graphics.rectangle("line", ox - 0.5, oy - 0.5, mapw * cw + 1, maph * cw + 1)
+	love.graphics.rectangle("line", -0.5, -0.5, mapw * cw + 1, maph * cw + 1)
 	
 	for y, row in pairs(mapdata) do
 		for x, id in pairs(row) do
 			local c = id
 			love.graphics.setColor(1 + cR * (1 - c), 1 + cG * (1 - c), 1 + cB * (1 - c))
-			love.graphics.rectangle("fill",
-				x * cw + ox + 1, y * cw + oy + 1, cw - 2, cw - 2)
+			love.graphics.rectangle("fill", x * cw + 1, y * cw + 1, cw - 2, cw - 2)
 		end
 	end
 	
@@ -103,28 +114,22 @@ local mapdraw = function()
 		love.graphics.setColor(1, 0, 0)
 		for y, row in pairs(costmap) do
 			for x, node in pairs(row) do
-				love.graphics.rectangle("fill",
-					x * cw + ox + 1, y * cw + oy + 1, 3, 3)
+				love.graphics.rectangle("fill", x * cw + 1, y * cw + 1, 3, 3)
 			end
 		end
 	end
 
 	love.graphics.setColor(0, 0, 1)
-	love.graphics.circle("fill", (goalx + 0.5) * cw + ox, (goaly + 0.5) * cw + oy, cw / 3)
+	love.graphics.circle("fill", (goalx + 0.5) * cw, (goaly + 0.5) * cw, cw / 3)
 
 	love.graphics.setColor(0, 1, 0)
-	love.graphics.circle("fill", (startx + 0.5) * cw + ox, (starty + 0.5) * cw + oy, cw / 3)
+	love.graphics.circle("fill", (startx + 0.5) * cw, (starty + 0.5) * cw, cw / 3)
 
 	if mappath then
 		love.graphics.setColor(0, 0, 1)
-		local x1, y1 = (mappath[1].x + 0.5) * cw + ox, (mappath[1].y + 0.5) * cw + oy
-		local x2, y2
-		for i = 2, #mappath do
-			x2, y2 = (mappath[i].x + 0.5) * cw + ox, (mappath[i].y + 0.5) * cw + oy
-			love.graphics.line(x1, y1, x2, y2)
-			x1, y1 = x2, y2
-		end
+		love.graphics.line(mappath.polyline)
 	end
+	love.graphics.translate(-ox, -oy)
 end
 
 local neighbors8 = function(context, node)
@@ -250,7 +255,7 @@ function love.keypressed(k, isrepeat)
 	end
 end
 
-local mousedown1, cellx, celly, cellx1, celly1, cellnode
+local mousedown1, mousedown2, cellx, celly, cellx1, celly1, cellnode
 
 function love.wheelmoved(x, y)
 	y = _floor(y)
@@ -263,12 +268,17 @@ function love.wheelmoved(x, y)
 			mapx = mapx - y * cellx
 			mapy = mapy - y * celly
 		end
+		if mappath then mappath.polyline = path2polyline(mappath) end
 	end
 end
 
 function love.mousepressed(mx,my,b)
 	if b == 1 then
 		cellx1, celly1, mousedown1 = cellx, celly, true
+		return
+	end
+	if b == 2 then
+		mousedown2 = true
 	end
 end
 
@@ -279,6 +289,10 @@ function love.mousereleased(mx, my, b)
 			update_node(cellx, celly)
 		end
 		if refreshmap then findpath(); refreshmap = false end
+		return
+	end
+	if b == 2 then
+		mousedown2 = false
 	end
 end
 
@@ -291,10 +305,9 @@ function love.mousemoved(mx, my, dx, dy)
 		cellnode = mapget(mapdata, cellx, celly)
 	end
 	if mousedown1 then
-		if cellx and celly then update_node(cellx, celly)
-		else
+		if cellx and celly then update_node(cellx, celly) end
+	elseif mousedown2 then
 			mapx, mapy = mapx + dx, mapy + dy
-		end
 	end
 end
 
